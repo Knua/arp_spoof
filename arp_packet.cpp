@@ -100,8 +100,8 @@ void copy_4byte_by_one_bit(uint8_t bit, uint8_t * dst){
     }
 }
 
-arp_packet arp_request_get_sender_mac_addr
-(uint8_t * attacker_mac, uint8_t * sender_ip, uint8_t * target_ip, uint8_t * attacker_ip){ // dst_mac 을 모르는 상황
+arp_packet arp_request_get_mac_addr
+(uint8_t * attacker_mac, uint8_t * object_ip, uint8_t * attacker_ip){ // dst_mac 을 모르는 상황
     arp_packet send_packet;
 
     copy_6byte_by_one_bit(0xff, send_packet.destination_mac_address);
@@ -115,7 +115,7 @@ arp_packet arp_request_get_sender_mac_addr
     copy_6byte(attacker_mac, send_packet.sender_hardware_address);
     copy_4byte(attacker_ip, send_packet.sender_protocol_address);
     copy_6byte_by_one_bit(0x00, send_packet.target_hardware_address);
-    copy_4byte(sender_ip, send_packet.target_protocol_address);
+    copy_4byte(object_ip, send_packet.target_protocol_address);
     
     return send_packet;
 }

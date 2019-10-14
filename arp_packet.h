@@ -1,12 +1,17 @@
 #pragma once
 #include <stdint.h>
 
-#define ETHERTYPE 12
 #define ETHERNET 14
-#define ARP_OPCODE 20
+#define ETHERTYPE 12
+#define ETHERNET_DESTINATION_MAC_ADDR 0
+#define ETHERNET_SOURCE_MAC_ADDR 6
+
+#define ARP_PACKET_LEN 42
+#define ARP_SOURCE_IP_ADDR 28
+#define ARP_DESTINATION_IP_ADDR 38
 #define ARP_SOURCE_MAC_ADDR 22
 #define ARP_DESTINATION_MAC_ADDR 32
-#define ARP_PACKET_LEN 42
+#define ARP_OPCODE 20
 #define Ethertype_IPv4 0x0800
 #define Ethertype_ARP  0x0806
 #define ARP_hardware_type_Ethernet 1
@@ -41,7 +46,7 @@ typedef struct _arp_packet {
     uint8_t target_protocol_address[4];
 } arp_packet; // 42byte
 
-arp_packet arp_request_get_sender_mac_addr(uint8_t * attacker_mac, uint8_t * sender_ip, uint8_t * target_ip, uint8_t * attacker_ip);
+arp_packet arp_request_get_mac_addr(uint8_t * attacker_mac, uint8_t * object_ip, uint8_t * attacker_ip);
 arp_packet arp_reply_target_ip_with_attacker_mac(uint8_t * attacker_mac, uint8_t * sender_mac, uint8_t * target_ip, uint8_t * sender_ip);
 
 void print_6byte_mac(uint8_t * source);
