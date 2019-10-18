@@ -19,6 +19,10 @@
 #define IPv4_address_length 4
 #define ARP_operation_request 1
 #define ARP_operation_reply 2
+
+#define IPv4_SOURCE_IP_ADDR 26
+#define IPv4_DESTINATION_IP_ADDR 30
+
 #define RESEND_SEC 5
  
 void usage();

