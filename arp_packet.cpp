@@ -1,15 +1,3 @@
-#include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <netinet/in.h>
-#include <sys/ioctl.h>
-#include <net/if.h> 
-#include <unistd.h>
-#include <arpa/inet.h>
-// https://stackoverflow.com/questions/1779715/how-to-get-mac-address-of-your-machine-using-a-c-program (Jamesprite, Charles Salvia)
-// https://technote.kr/176
-
 #include "arp_packet.h"
 
 void usage() {
@@ -32,36 +20,46 @@ void ip_str_to_addr(char * str, uint8_t * addr){
     addr[nowidx] = nowNum; // x.y.z.k 에서 k는 이 순간 저장
 }
 
-void get_attacker_mac_addr(uint8_t * attacker_mac_addr){
-    struct ifreq ifr;
-    struct ifconf ifc;
-    char buf[1024];
-    int success = 0;
+void get_attacker_mac_addr(uint8_t * attacker_mac_addr, char * dev){
+    int                 mib[6];
+    size_t              len;
+    char                *buf;
+    unsigned char       *ptr;
+    struct if_msghdr    *ifm;
+    struct sockaddr_dl  *sdl;
 
-    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-    if (sock == -1) { /* handle error*/ };
+    mib[0] = CTL_NET;
+    mib[1] = AF_ROUTE;
+    mib[2] = 0;
+    mib[3] = AF_LINK;
+    mib[4] = NET_RT_IFLIST;
 
-    ifc.ifc_len = sizeof(buf);
-    ifc.ifc_buf = buf;
-    if (ioctl(sock, SIOCGIFCONF, &ifc) == -1) { /* handle error */ }
-
-    struct ifreq* it = ifc.ifc_req;
-    const struct ifreq* const end = it + (ifc.ifc_len / sizeof(struct ifreq));
-
-    for (; it != end; ++it) {
-        strcpy(ifr.ifr_name, it->ifr_name);
-        if (ioctl(sock, SIOCGIFFLAGS, &ifr) == 0) {
-            if (! (ifr.ifr_flags & IFF_LOOPBACK)) { // don't count loopback
-                if (ioctl(sock, SIOCGIFHWADDR, &ifr) == 0) {
-                    success = 1;
-                    break;
-                }
-            }
-        }
-        else { /* handle error */ }
+    if ((mib[5] = if_nametoindex(dev)) == 0) {
+        perror("if_nametoindex error");
+        exit(2);
     }
-    if (success) memcpy(attacker_mac_addr, ifr.ifr_hwaddr.sa_data, 6);
-};
+
+    if (sysctl(mib, 6, NULL, &len, NULL, 0) < 0) {
+        perror("sysctl 1 error");
+        exit(3);
+    }
+
+    if ((buf = (char *)malloc(len)) == NULL) {
+        perror("malloc error");
+        exit(4);
+    }
+
+    if (sysctl(mib, 6, buf, &len, NULL, 0) < 0) {
+        perror("sysctl 2 error");
+        exit(5);
+    }
+
+    ifm = (struct if_msghdr *)buf;
+    sdl = (struct sockaddr_dl *)(ifm + 1);
+    ptr = (unsigned char *)LLADDR(sdl);
+    memcpy(attacker_mac_addr, ptr, MAC_address_length);
+}
+
 void get_attacker_ip_addr(uint8_t * attacker_ip_addr, char * dev){
     struct ifreq ifr;
     char ipstr[40];

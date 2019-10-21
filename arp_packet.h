@@ -1,5 +1,21 @@
 #pragma once
 #include <stdint.h>
+#include <pcap.h>
+#include <stdio.h>
+#include <arpa/inet.h>
+#include <netinet/if_ether.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <sys/ioctl.h>
+#include <sys/sysctl.h>
+#include <string.h> 
+#include <string>     
+#include <net/if_dl.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <ifaddrs.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #define ETHERNET 14
 #define ETHERTYPE 12
@@ -27,7 +43,7 @@
  
 void usage();
 void ip_str_to_addr(char * str, uint8_t * addr);
-void get_attacker_mac_addr(uint8_t * attacker_mac_addr);
+void get_attacker_mac_addr(uint8_t * attacker_mac_addr, char * dev);
 void get_attacker_ip_addr(uint8_t * attacker_ip_addr, char * dev);
 void copy_6byte(uint8_t * source, uint8_t * destination);
 void copy_4byte(uint8_t * source, uint8_t * destination);
