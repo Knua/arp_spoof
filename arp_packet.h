@@ -39,7 +39,8 @@
 #define IPv4_SOURCE_IP_ADDR 26
 #define IPv4_DESTINATION_IP_ADDR 30
 
-#define RESEND_SEC 30
+#define RESEND_SEC 5
+#define SAME 0
  
 void usage();
 void ip_str_to_addr(char * str, uint8_t * addr);
