@@ -148,7 +148,6 @@ int main(int argc, char* argv[])
     memset(need_arp_spoof_reinfect_packet, false, sizeof(need_arp_spoof_reinfect_packet));
     
     arp_packet arp_packet_deceive_sender[101];
-    arp_packet arp_packet_deceive_target[101];
     for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
         arp_packet_deceive_sender[now_pair] = arp_reply_target_ip_with_attacker_mac(attacker_mac, sender_mac[now_pair], target_ip[now_pair], sender_ip[now_pair]);
     }
@@ -169,7 +168,6 @@ int main(int argc, char* argv[])
             else if(need_arp_spoof_reinfect){
                 for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
                     if(need_arp_spoof_reinfect_packet[now_pair] == true){ // only re-infect pair that needs re-inject
-                        bool flg = false;
                         if(pcap_sendpacket(handle, (uint8_t *)(& arp_packet_deceive_sender[now_pair]), ARP_PACKET_LEN) != 0){
                             printf("[Error] pair %d's Sender Infect Packet Sending Failed.\n", now_pair + 1);
                             need_arp_spoof_reinfect_packet[now_pair] = true;
