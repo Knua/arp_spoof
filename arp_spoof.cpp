@@ -259,7 +259,7 @@ int main(int argc, char* argv[])
                         // check packet src == sender_ip & packet dst == target_ip
                         
                     if(ntohs(*((uint16_t *)(packet + ETHERTYPE))) == Ethertype_IPv4){
-                        if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, attacker_mac, IPv4_address_length) == SAME){
+                        if(memcmp((uint8_t *)packet + ETHERNET_DESTINATION_MAC_ADDR, attacker_mac, MAC_address_length) == SAME){
                                 // sender -> target relay
                             if(memcmp((uint8_t *)packet + IPv4_SOURCE_IP_ADDR, sender_ip[now_pair], IPv4_address_length) == SAME){ // check target ip addr
                                 uint8_t * now_packet = (uint8_t *) packet;
